@@ -6,7 +6,7 @@ local textutils = textutils
 local http = http
 
 -- CONFIG
-local BRIDGE_URL = "http://YOUR_PC_IP:25594/wopr"  -- replace with your bridge IP
+local BRIDGE_URL = "http://YOUR_PC_IP:25594/wopr"  -- replace YOUR_PC_IP
 
 local function chatGPT_bridge(message)
     local body = '{"message":' .. textutils.serializeJSON(message) .. '}'
@@ -26,9 +26,11 @@ local function chatGPT_bridge(message)
     return resp
 end
 
--- Detect if the file is run directly
-if not pcall(debug.getlocal, 1, 1) then
-    -- Running directly
+-- MODULE EXPORT
+local module = { chat = chatGPT_bridge }
+
+-- SELF-TEST: Only run if executed directly, not required
+if not _G.arg then
     print("=== Chatbridge Self-Test ===")
     print("Testing connection to bridge at: " .. BRIDGE_URL)
     local reply, err = chatGPT_bridge("Hello WOPR, test connectivity.")
@@ -37,10 +39,6 @@ if not pcall(debug.getlocal, 1, 1) then
     else
         print("Failed to connect to bridge:\n"..tostring(err))
     end
-    return
 end
 
--- Module export
-return {
-    chat = chatGPT_bridge
-}
+return module
