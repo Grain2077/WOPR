@@ -4,7 +4,6 @@ local APP_NAME = "WOPR 0.1"
 local FILES = {
     --"wopr/startup.lua",
     "wopr/main.lua",
-    "wopr/screen.lua",
     "wopr/chess.lua",
     "wopr/tictactoe.lua"
 }
