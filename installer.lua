@@ -1,11 +1,11 @@
-local APP_NAME = "WOPR 0.1"
+local APP_NAME = "WOPR 0.2"
 
 -- Files to install (relative to repo root)
 local FILES = {
     --"wopr/startup.lua",
     "wopr/main.lua",
     "wopr/chess.lua",
-    "wopr/tictactoe.lua"
+    "wopr/ttt.lua"
 }
 
 -- Ask user for confirmation
