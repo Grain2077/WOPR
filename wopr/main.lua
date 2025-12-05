@@ -1,101 +1,136 @@
--- /wopr/main.lua
-local screen = require("wopr.screen")
-local chess = require("wopr.chess")
-local ttt = require("wopr.tictactoe")
+-----------------------------
+-- WOPR MAIN (Integrated)
+-- No require() — CC:Tweaked compatible
+-- Chess + TTT loaded via dofile()
+-----------------------------
 
--- speaker peripheral (optional)
-local speaker = nil
-local function initSpeaker()
-  local ok, sp = pcall(peripheral.find, "speaker")
-  if ok and sp then speaker = sp end
-end
+-- Load game files (must return tables!)
+local chess = dofile("wopr/chess.lua")
+local ttt   = dofile("wopr/ttt.lua")
 
--- speak function: prints and plays short beeps for words if speaker present
-local function speak(text)
-  screen.printSlow(text)
-  if speaker then
-    -- attempt to play short note per word; safe pcall to avoid errors
-    for word in text:gmatch("%S+") do
-      pcall(function()
-        -- try several known methods safely
-        if speaker.playSound then
-          speaker.playSound("minecraft:block.note_block.harp", 1.0, 0.6)
-        elseif speaker.playNote then
-          speaker.playNote(1, 1) -- legacy API possibilities
-        end
-      end)
-      sleep(0.06)
+---------------------------------------------------
+-- PERSISTENT MEMORY (integrated)
+---------------------------------------------------
+
+local memory = {}
+
+local memFile = "wopr_memory.db"
+local memData = {}
+
+function memory.init()
+    if fs.exists(memFile) then
+        local h = fs.open(memFile, "r")
+        memData = textutils.unserialize(h.readAll()) or {}
+        h.close()
+    else
+        memory.save()
     end
-  end
 end
 
--- visual setup
-screen.setGreenPhosphor(true)
-math.randomseed(os.time() % 65536)
-initSpeaker()
+function memory.save()
+    local h = fs.open(memFile, "w")
+    h.write(textutils.serialize(memData))
+    h.close()
+end
 
--- authentic WOPR lines
-local lines = {
-  intro = "WELCOME TO W.O.P.R. (War Operation Plan Response).",
-  logon = "LOGON:",
-  access = "ACCESS GRANTED.",
-  greet = "WOPR: Greetings, Professor Falken.",
-  askChess = "WOPR: Shall we play a game of chess?",
-  askMood = "WOPR: How are you feeling today, Professor?",
-  askWar = "WOPR: Would you like to explore global thermonuclear war scenarios?",
-  askTtt = "WOPR: Would you like to play a smaller strategic simulation (tic-tac-toe)?",
-  goodbye = "WOPR: SESSION COMPLETE. GOODBYE, PROFESSOR."
+function memory.get(key)
+    return memData[key]
+end
+
+function memory.set(key, val)
+    memData[key] = val
+    memory.save()
+end
+
+
+---------------------------------------------------
+-- SCREEN SYSTEM (integrated)
+---------------------------------------------------
+
+local function clear()
+    term.setBackgroundColor(colors.black)
+    term.setTextColor(colors.white)
+    term.clear()
+    term.setCursorPos(1,1)
+end
+
+local function typeSlow(str, rate)
+    rate = rate or 0.03
+    term.setCursorBlink(false)
+    for c in str:gmatch(".") do
+        write(c)
+        sleep(rate)
+    end
+    term.setCursorBlink(true)
+end
+
+local function ask(str)
+    typeSlow("\nWOPR: " .. str .. "\n> ")
+    return read()
+end
+
+
+---------------------------------------------------
+-- DIALOG SYSTEM (integrated)
+---------------------------------------------------
+
+local greetings = {
+    "GREETINGS PROFESSOR.",
+    "AH, PROFESSOR FALKEN.",
+    "HELLO AGAIN, PROFESSOR."
 }
 
--- boot / logon
-screen.reset()
-speak(lines.intro)
-sleep(0.12)
-screen.printSlow(lines.logon, 0.06)
-local user = screen.input("> ")
-speak(lines.access)
-sleep(0.2)
+local queries = {
+    "SHALL WE PLAY A GAME?",
+    "WOULD YOU LIKE A STRATEGIC SIMULATION?",
+    "WHAT SHALL WE PLAY TODAY?"
+}
 
--- dialogue flow
-speak(lines.greet)
-sleep(0.25)
-speak(lines.askChess)
-local ans = screen.input("> ")
-if ans:lower():find("y") then
-  speak("WOPR: Initializing chess simulation...")
-  chess.play(screen, speaker)
-else
-  speak("WOPR: Very well. We will not play chess.")
+local gameList = {
+    "TIC-TAC-TOE",
+    "CHESS"
+}
+
+local function startConversation(username)
+    typeSlow("\nWOPR: "..greetings[math.random(#greetings)].."\n", 0.04)
+
+    local response = ask(queries[math.random(#queries)])
+    local lower = string.lower(response)
+
+    if lower:find("tic") or lower:find("toe") then
+        typeSlow("\nWOPR: EXCELLENT.\n")
+        ttt.play()
+        return
+    end
+
+    if lower:find("chess") then
+        typeSlow("\nWOPR: INITIALIZING BOARD.\n")
+        chess.start()
+        return
+    end
+
+    typeSlow("\nWOPR: AVAILABLE OPTIONS:\n")
+    for _,g in ipairs(gameList) do
+        typeSlow(" - "..g.."\n")
+    end
 end
 
-sleep(0.12)
-speak(lines.askMood)
-local mood = screen.input("> ")
-speak("WOPR: Acknowledged: "..(mood or ""))
-sleep(0.2)
 
-speak(lines.askWar)
-local warAns = screen.input("> ")
-if warAns:lower():find("y") then
-  speak("WOPR: WARNING: Global thermonuclear war scenarios activated.")
-  for i=1,4 do
-    speak("Calculating scenario "..i.." ...")
-    sleep(0.14)
-  end
-  speak("WOPR: Simulation complete.")
-else
-  speak("WOPR: Simulation aborted. Returning to standby.")
+---------------------------------------------------
+-- MAIN PROGRAM
+---------------------------------------------------
+
+math.randomseed(os.time() % 65536)
+memory.init()
+
+clear()
+typeSlow("LOGON: >", 0.08)
+local username = read()
+
+typeSlow("\nVERIFYING...", 0.04)
+sleep(1)
+typeSlow("\nACCESS GRANTED.\n\n", 0.05)
+
+while true do
+    startConversation(username)
 end
-
-sleep(0.12)
-speak(lines.askTtt)
-local t = screen.input("> ")
-if t:lower():find("y") then
-  speak("WOPR: Very well. You will be X.")
-  ttt.play(screen)
-else
-  speak("WOPR: Very well. No small simulation.")
-end
-
-speak(lines.goodbye)
-screen.setGreenPhosphor(false)
