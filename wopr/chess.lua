@@ -1,44 +1,46 @@
 -- /wopr/chess.lua
--- /wopr/chess.lua
+-- Depth-2 chess with persistent learning (CC:Tweaked friendly)
+-- Exposes module.start() to run the game (human = White)
+
+local module = {}
 local fs = fs
 local textutils = textutils
 local math = math
 local os = os
 
-local chess = {}
 local DATA_FILE = "/wopr/chess_experience.txt"
 local experience = {}
 
--- set search depth to 2 (fast)
-chess.SEARCH_DEPTH = 2
+-- CONFIG
+module.SEARCH_DEPTH = 2   -- lowered for CC performance
 
--- piece values (centipawns)
+-- Piece values (centipawns)
 local pieceValue = { p=100, n=320, b=330, r=500, q=900, k=20000 }
 
--- Ensure data directory
+-- Utilities
 local function ensureDataDir()
   if not fs.exists("/wopr") then fs.makeDir("/wopr") end
 end
 
-function chess.loadExperience()
+function module.loadExperience()
   ensureDataDir()
   if fs.exists(DATA_FILE) then
-    local f = fs.open(DATA_FILE, "r")
+    local f = fs.open(DATA_FILE,"r")
     local d = textutils.unserialize(f.readAll())
     f.close()
-    if type(d) == "table" then experience = d end
+    if type(d)=="table" then experience = d end
   end
 end
 
-function chess.saveExperience()
+function module.saveExperience()
   ensureDataDir()
-  local f = fs.open(DATA_FILE, "w")
+  local f = fs.open(DATA_FILE,"w")
   f.write(textutils.serialize(experience))
   f.close()
 end
 
--- Board representation: board[row][col] 1..8
-function chess.newBoard()
+-- Board helpers
+local function newBoard()
   local init = {
     {"r","n","b","q","k","b","n","r"},
     {"p","p","p","p","p","p","p","p"},
@@ -57,11 +59,10 @@ function chess.newBoard()
   return b
 end
 
--- helpers
 local function inside(r,c) return r>=1 and r<=8 and c>=1 and c<=8 end
 local function isWhite(p) if p=="." then return nil end return p:match("%u") ~= nil end
 
--- generate pseudo-legal moves (does NOT check for checks for speed)
+-- Move generation (pseudo-legal: does NOT check checks, but includes normal piece moves; no castling/en-passant)
 local function genMoves(board, white)
   local moves = {}
   local knightDirs = {{2,1},{2,-1},{-2,1},{-2,-1},{1,2},{-1,2},{1,-2},{-1,-2}}
@@ -77,14 +78,17 @@ local function genMoves(board, white)
         if pl == "p" then
           local dir = white and -1 or 1
           local r1 = r + dir
-          if inside(r1,c) and board[r1][c] == "." then
+          -- single advance
+          if inside(r1,c) and board[r1][c]== "." then
             table.insert(moves,{fromR=r,fromC=c,toR=r1,toC=c,promote=(r1==1 or r1==8)})
+            -- two-step from start
             local startRank = white and 7 or 2
             local r2 = r + 2*dir
             if r == startRank and board[r2][c] == "." then
               table.insert(moves,{fromR=r,fromC=c,toR=r2,toC=c})
             end
           end
+          -- captures
           for _,dc in ipairs({-1,1}) do
             local rr,cc = r+dir, c+dc
             if inside(rr,cc) then
@@ -100,16 +104,16 @@ local function genMoves(board, white)
             local rr,cc = r+d[1], c+d[2]
             if inside(rr,cc) then
               local t = board[rr][cc]
-              if t == "." or isWhite(t) ~= pWhite then table.insert(moves,{fromR=r,fromC=c,toR=rr,toC=cc}) end
+              if t=="." or isWhite(t) ~= pWhite then table.insert(moves,{fromR=r,fromC=c,toR=rr,toC=cc}) end
             end
           end
 
         elseif pl == "b" or pl == "r" or pl == "q" then
           local dirs = (pl=="b") and diagDirs or (pl=="r") and straightDirs or (function()
-            local all = {}
-            for _,v in ipairs(straightDirs) do table.insert(all,v) end
-            for _,v in ipairs(diagDirs) do table.insert(all,v) end
-            return all
+            local a = {}
+            for _,v in ipairs(straightDirs) do table.insert(a,v) end
+            for _,v in ipairs(diagDirs) do table.insert(a,v) end
+            return a
           end)()
           for _,d in ipairs(dirs) do
             local rr,cc = r+d[1], c+d[2]
@@ -130,7 +134,7 @@ local function genMoves(board, white)
             local rr,cc = r+d[1], c+d[2]
             if inside(rr,cc) then
               local t = board[rr][cc]
-              if t == "." or isWhite(t) ~= pWhite then table.insert(moves,{fromR=r,fromC=c,toR=rr,toC=cc}) end
+              if t=="." or isWhite(t) ~= pWhite then table.insert(moves,{fromR=r,fromC=c,toR=rr,toC=cc}) end
             end
           end
         end
@@ -146,21 +150,19 @@ local function applyMove(board, mv)
   local piece = nb[mv.fromR][mv.fromC]
   nb[mv.toR][mv.toC] = piece
   nb[mv.fromR][mv.fromC] = "."
-  if mv.promote then
-    nb[mv.toR][mv.toC] = piece:match("%u") and "Q" or "q"
-  end
+  if mv.promote then nb[mv.toR][mv.toC] = piece:match("%u") and "Q" or "q" end
   return nb
 end
 
 local function boardKey(board)
-  local s = {}
-  for r=1,8 do for c=1,8 do s[#s+1] = board[r][c] end end
-  return table.concat(s)
+  local t = {}
+  for r=1,8 do for c=1,8 do t[#t+1] = board[r][c] end end
+  return table.concat(t)
 end
 
 local function moveKey(mv) return string.format("%d%d_%d%d", mv.fromR, mv.fromC, mv.toR, mv.toC) end
 
--- evaluation: material + mobility + center bonus
+-- evaluation: material + simple mobility + center bonus
 local function evaluate(board)
   local score = 0
   for r=1,8 do for c=1,8 do
@@ -178,7 +180,7 @@ local function evaluate(board)
   return score
 end
 
--- experience bias for moves in this position
+-- bias from learned experience (if any)
 local function experienceBias(board, moves)
   local key = boardKey(board)
   local tableForKey = experience[key] or {}
@@ -187,7 +189,7 @@ local function experienceBias(board, moves)
   return biases
 end
 
--- minimax with alpha-beta (returns score, bestMove)
+-- minimax with alpha-beta, returns score, bestMove
 local function minimax(board, depth, alpha, beta, maximizing)
   if depth == 0 then return evaluate(board), nil end
   local moves = genMoves(board, maximizing)
@@ -195,8 +197,7 @@ local function minimax(board, depth, alpha, beta, maximizing)
   local biases = experienceBias(board, moves)
 
   if maximizing then
-    local bestScore = -1e9
-    local bestMv = nil
+    local bestScore = -1e9; local bestMv = nil
     for _,mv in ipairs(moves) do
       local child = applyMove(board, mv)
       local sc,_ = minimax(child, depth-1, alpha, beta, false)
@@ -207,8 +208,7 @@ local function minimax(board, depth, alpha, beta, maximizing)
     end
     return bestScore, bestMv
   else
-    local bestScore = 1e9
-    local bestMv = nil
+    local bestScore = 1e9; local bestMv = nil
     for _,mv in ipairs(moves) do
       local child = applyMove(board, mv)
       local sc,_ = minimax(child, depth-1, alpha, beta, true)
@@ -222,8 +222,8 @@ local function minimax(board, depth, alpha, beta, maximizing)
 end
 
 local function chooseMove(board, isWhite)
-  chess.loadExperience()
-  local _, mv = minimax(board, chess.SEARCH_DEPTH, -1e9, 1e9, not not isWhite)
+  module.loadExperience()
+  local _, mv = minimax(board, module.SEARCH_DEPTH, -1e9, 1e9, isWhite)
   if not mv then
     local moves = genMoves(board, isWhite)
     if #moves == 0 then return nil end
@@ -260,11 +260,10 @@ local function recordHistory(history, winner)
     end
     experience[bkey][mk] = (experience[bkey][mk] or 0) + reward
   end
-  chess.saveExperience()
+  module.saveExperience()
 end
 
--- pretty helper
-function chess._pretty(board)
+local function prettyBoard(board)
   local out = {}
   for r=1,8 do
     local row = ""
@@ -274,39 +273,44 @@ function chess._pretty(board)
   return out
 end
 
--- play: human is white
-function chess.play(screen, speaker)
-  chess.loadExperience()
-  local board = chess.newBoard()
+-- parse moves - accepts "r c_r c" or "rc_rc" or "rc_rc" with no spaces (digits 1-8)
+local function parseMoveString(s)
+  if not s then return nil end
+  local a,b,c,d = s:match("(%d)%s*(%d)%s*[_%s]%s*(%d)%s*(%d)")
+  if a then return tonumber(a),tonumber(b),tonumber(c),tonumber(d) end
+  local p1,p2 = s:match("(%d%d)%s*_%s*(%d%d)")
+  if p1 and p2 and #p1==2 and #p2==2 then
+    return tonumber(p1:sub(1,1)), tonumber(p1:sub(2,2)), tonumber(p2:sub(1,1)), tonumber(p2:sub(2,2))
+  end
+  return nil
+end
+
+-- Public function: start the chess game (human = white)
+function module.start()
+  module.loadExperience()
+  local board = newBoard()
   local history = {}
   local whiteTurn = true
   local moveCount = 0
 
-  screen.printSlow("CHESS SIMULATION INITIALIZED. You are White.")
+  print("\nCHESS SIMULATION INITIALIZED. You are White.\n")
   while true do
-    screen.printSlow("Move " .. (moveCount+1) .. ":")
-    for _,line in ipairs(chess._pretty(board)) do screen.printSlow(line, 0.002) end
+    print("Move " .. (moveCount+1) .. ":")
+    for _,line in ipairs(prettyBoard(board)) do print(line) end
 
     local winner = checkGameEnd(board)
     if winner then
-      screen.printSlow("Game over: "..winner.." wins.")
+      print("Game over: "..winner.." wins.")
       recordHistory(history, winner)
       return
     end
 
     if whiteTurn then
       while true do
-        local s = screen.ask("Your move (format 'r c_r c', e.g. '7 2_5 2' or '72_52'):")
-        local a,b,c,d = s:match("(%d)%s*(%d)%s*[_%s]%s*(%d)%s*(%d)")
-        if not a then
-          local p1,p2 = s:match("(%d%d)%s*_%s*(%d%d)")
-          if p1 and p2 and #p1==2 and #p2==2 then
-            a,b = p1:sub(1,1), p1:sub(2,2)
-            c,d = p2:sub(1,1), p2:sub(2,2)
-          end
-        end
-        if a then
-          local fR,fC,tR,tC = tonumber(a),tonumber(b),tonumber(c),tonumber(d)
+        write("Your move (rowcol_rowcol, e.g. '72_52' or '7 2_5 2'): ")
+        local s = read()
+        local fR,fC,tR,tC = parseMoveString(s)
+        if fR then
           local moves = genMoves(board, true)
           local chosen = nil
           for _,mv in ipairs(moves) do
@@ -317,34 +321,34 @@ function chess.play(screen, speaker)
             board = applyMove(board, chosen)
             break
           else
-            screen.printSlow("Illegal move. Try again.")
+            print("Illegal move. Try again.")
           end
         else
-          screen.printSlow("Couldn't parse move. Try formats like '7 2_5 2' or '72_52'.")
+          print("Couldn't parse move. Try '7 2_5 2' or '72_52'.")
         end
       end
     else
-      screen.printSlow("WOPR thinking...")
+      print("WOPR thinking...")
       local mv = chooseMove(board, false)
       if not mv then
-        screen.printSlow("WOPR has no legal moves. Stalemate/draw.")
+        print("WOPR has no legal moves. Stalemate/draw.")
         recordHistory(history, "draw")
         return
       end
       history[#history+1] = { boardKey = boardKey(board), move = mv, white = false }
       local label = string.format("%d%d -> %d%d", mv.fromR, mv.fromC, mv.toR, mv.toC)
-      screen.printSlow("WOPR moves " .. label)
+      print("WOPR moves " .. label)
       board = applyMove(board, mv)
     end
 
     whiteTurn = not whiteTurn
     moveCount = moveCount + 1
     if moveCount > 300 then
-      screen.printSlow("Draw by move limit.")
+      print("Draw by move limit.")
       recordHistory(history, "draw")
       return
     end
   end
 end
 
-return chess
+return module
