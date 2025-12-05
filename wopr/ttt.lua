@@ -1,9 +1,12 @@
--- /wopr/tictactoe.lua
+-- /wopr/ttt.lua
+-- Tic-Tac-Toe with simple learning; CC:Tweaked module
+-- Exposes module.play()
+
+local module = {}
 local fs = fs
 local textutils = textutils
 local math = math
 
-local ttt = {}
 local DATA_FILE = "/wopr/ttt_experience.txt"
 local memory = {}
 
@@ -11,30 +14,28 @@ local function ensureDataDir()
   if not fs.exists("/wopr") then fs.makeDir("/wopr") end
 end
 
-function ttt.load()
+function module.load()
   ensureDataDir()
   if fs.exists(DATA_FILE) then
-    local f = fs.open(DATA_FILE, "r")
+    local f = fs.open(DATA_FILE,"r")
     local d = textutils.unserialize(f.readAll())
     f.close()
-    if type(d) == "table" then memory = d end
+    if type(d)=="table" then memory = d end
   end
 end
 
-function ttt.save()
+function module.save()
   ensureDataDir()
-  local f = fs.open(DATA_FILE, "w")
+  local f = fs.open(DATA_FILE,"w")
   f.write(textutils.serialize(memory))
   f.close()
 end
 
-local function boardKey(b)
-  return table.concat(b)
-end
+local function boardKey(b) return table.concat(b) end
 
 local function getEmpty(b)
   local ret = {}
-  for i=1,9 do if b[i] == " " then table.insert(ret, i) end end
+  for i=1,9 do if b[i]==" " then table.insert(ret,i) end end
   return ret
 end
 
@@ -42,9 +43,9 @@ local function checkWin(b)
   local lines = {{1,2,3},{4,5,6},{7,8,9},{1,4,7},{2,5,8},{3,6,9},{1,5,9},{3,5,7}}
   for _,ln in ipairs(lines) do
     local a,b1,c = b[ln[1]], b[ln[2]], b[ln[3]]
-    if a ~= " " and a==b1 and b1==c then return a end
+    if a~=" " and a==b1 and b1==c then return a end
   end
-  for i=1,9 do if b[i] == " " then return nil end end
+  for i=1,9 do if b[i]==" " then return nil end end
   return "draw"
 end
 
@@ -60,7 +61,7 @@ local function chooseMove(b)
     table.sort(choices, function(a,b2)
       local sa = memory[key][a] or 0
       local sb = memory[key][b2] or 0
-      if sa == sb then return math.random()<0.5 end
+      if sa == sb then return math.random() < 0.5 end
       return sa > sb
     end)
     if math.random() < 0.15 then return choices[math.random(#choices)] end
@@ -70,18 +71,18 @@ local function chooseMove(b)
   end
 end
 
-function ttt.play(screen)
-  ttt.load()
+function module.play()
+  module.load()
   local board = {" "," "," "," "," "," "," "," "," "}
   local history = {}
   local turn = "X"
   while true do
     -- draw board
-    screen.printSlow((" %s | %s | %s"):format(board[1],board[2],board[3]))
-    screen.printSlow("-----------")
-    screen.printSlow((" %s | %s | %s"):format(board[4],board[5],board[6]))
-    screen.printSlow("-----------")
-    screen.printSlow((" %s | %s | %s"):format(board[7],board[8],board[9]))
+    print(string.format(" %s | %s | %s", board[1],board[2],board[3]))
+    print("-----------")
+    print(string.format(" %s | %s | %s", board[4],board[5],board[6]))
+    print("-----------")
+    print(string.format(" %s | %s | %s", board[7],board[8],board[9]))
 
     local winner = checkWin(board)
     if winner then
@@ -91,23 +92,23 @@ function ttt.play(screen)
         else recordMove(h.state,h.move,-2)
         end
       end
-      ttt.save()
-      if winner == "draw" then screen.printSlow("Game over: Draw.") else screen.printSlow("Game over: "..winner.." wins.") end
+      module.save()
+      if winner == "draw" then print("Game over: Draw.") else print("Game over: "..winner.." wins.") end
       return
     end
 
     if turn == "X" then
-      local ok=false
+      local ok = false
       while not ok do
-        screen.printSlow("Your move (1-9): ")
-        local s = screen.input("> ")
+        write("Your move (1-9): ")
+        local s = read()
         local n = tonumber(s)
-        if n and board[n] == " " then
+        if n and n>=1 and n<=9 and board[n]==" " then
           board[n] = "X"
-          table.insert(history, {state=boardKey(board), move=n, mark="X"})
+          table.insert(history, { state = boardKey(board), move = n, mark = "X" })
           ok = true
         else
-          screen.printSlow("Invalid move.")
+          print("Invalid move.")
         end
       end
     else
@@ -115,11 +116,11 @@ function ttt.play(screen)
       for i=1,9 do pre[i] = board[i] end
       local mv = chooseMove(board)
       board[mv] = "O"
-      table.insert(history, {state=boardKey(pre), move=mv, mark="O"})
-      screen.printSlow("WOPR plays at "..mv.." (O)")
+      table.insert(history, { state = boardKey(pre), move = mv, mark = "O" })
+      print("WOPR plays at "..mv.." (O)")
     end
-    turn = (turn=="X") and "O" or "X"
+    turn = (turn == "X") and "O" or "X"
   end
 end
 
-return ttt
+return module
